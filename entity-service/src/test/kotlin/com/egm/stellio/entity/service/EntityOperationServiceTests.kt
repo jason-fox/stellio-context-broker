@@ -121,4 +121,21 @@ class EntityOperationServiceTests {
         assertEquals(arrayListOf("1", "2"), batchOperationResult.success)
         assertTrue(batchOperationResult.errors.isEmpty())
     }
+
+    @Test
+    fun `it should not update entities with relationships to invalid entity`() {
+        val firstEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { firstEntity.id } returns "1"
+        val secondEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { secondEntity.id } returns "2"
+        every { secondEntity.getRelationships() } returns listOf("3")
+
+        every { entityService.exists("3") } returns false
+        every { entityService.appendEntityAttributes(eq("1"), any(), any()) } returns UpdateResult(listOf(), listOf())
+
+        val batchOperationResult = entityOperationService.update(listOf(firstEntity, secondEntity))
+
+        assertEquals(listOf("1"), batchOperationResult.success)
+        assertEquals(listOf(BatchEntityError("2", arrayListOf("Target entity 3 does not exist."))), batchOperationResult.errors)
+    }
 }

@@ -58,6 +58,35 @@ class EntityOperationService(
         return BatchOperationResult(ArrayList(success), ArrayList(errors))
     }
 
+    /**
+     * Upsert a batch of [entities].
+     *
+     * @return a [BatchOperationResult]
+     */
+    fun update(entitiesToUpdate: List<ExpandedEntity>): BatchOperationResult {
+        return entitiesToUpdate.fold(BatchOperationResult(arrayListOf(), arrayListOf()), { (updates, errors), entity ->
+
+            // All relations should target existing entities in DB
+            val invalidRelation = entity.getLinkedEntitiesIds().find { relation ->
+                !entityService.exists(relation)
+            }
+            if (invalidRelation != null) {
+                errors.add(BatchEntityError(entity.id, arrayListOf("Target entity $invalidRelation does not exist.")))
+                return@fold BatchOperationResult(updates, errors)
+            }
+
+            val (_, notUpdated) = entityService.appendEntityAttributes(entity.id, entity.attributesWithoutTypeAndId, false)
+
+            if (notUpdated.isEmpty()) {
+                updates.add(entity.id)
+            } else {
+                errors.add(BatchEntityError(entity.id, ArrayList(notUpdated.map { it.attributeName + it.reason })))
+            }
+
+            BatchOperationResult(updates, errors)
+        })
+    }
+
     private fun createEntitiesWithoutCircularDependencies(graph: Graph<ExpandedEntity, DefaultEdge>): Pair<BatchOperationResult, Set<ExpandedEntity>> {
         val batchOperationResult = BatchOperationResult(arrayListOf(), arrayListOf())
         val temporaryGraph = DirectedPseudograph<ExpandedEntity, DefaultEdge>(DefaultEdge::class.java)

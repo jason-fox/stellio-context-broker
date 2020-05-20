@@ -46,6 +46,30 @@ class EntityOperationHandler(
             }
     }
 
+    /**
+     * Implements 6.15.3.1 - Create Batch of Entities
+     */
+    fun upsert(req: ServerRequest): Mono<ServerResponse> {
+
+        return req.bodyToMono<String>()
+            .map {
+                extractAndParseBatchOfEntities(it)
+            }
+            .map {
+                val (existingEntities, newEntities) = entityOperationService.splitEntitiesByExistence(it)
+
+                val createBatchOperationResult = entityOperationService.create(newEntities)
+                val updateBatchOperationResult = entityOperationService.update(existingEntities)
+                BatchOperationResult(
+                    ArrayList(createBatchOperationResult.success.plus(updateBatchOperationResult.success)),
+                    ArrayList(createBatchOperationResult.errors.plus(updateBatchOperationResult.errors))
+                )
+            }
+            .flatMap {
+                ok().body(BodyInserters.fromValue(it))
+            }
+    }
+
     private fun extractAndParseBatchOfEntities(payload: String): List<ExpandedEntity> {
         val extractedEntities = extractEntitiesFromJsonPayload(payload)
         return NgsiLdParsingUtils.parseEntities(extractedEntities)
@@ -58,4 +82,5 @@ class EntityOperationHandler(
             mapper.typeFactory.constructCollectionType(MutableList::class.java, Map::class.java)
         )
     }
+
 }
