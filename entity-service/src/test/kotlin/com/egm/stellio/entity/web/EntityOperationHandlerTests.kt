@@ -3,7 +3,6 @@ package com.egm.stellio.entity.web
 import com.egm.stellio.entity.config.WebSecurityTestConfig
 import com.egm.stellio.entity.service.EntityOperationService
 import com.egm.stellio.shared.model.ExpandedEntity
-import com.egm.stellio.entity.model.UpdateResult
 import com.ninjasquad.springmockk.MockkBean
 import io.mockk.every
 import io.mockk.mockk
@@ -39,11 +38,6 @@ class EntityOperationHandlerTests {
     @Test
     fun `upsert batch entity should return a 200 if JSON-LD payload contains update errors`() {
         val jsonLdFile = ClassPathResource("/ngsild/hcmr/HCMR_test_file_invalid_relation_update.json")
-
-        every { entityService.exists("urn:ngsi-ld:Sensor:HCMR-AQUABOX1temperature") } returns true
-        every { entityService.exists("urn:ngsi-ld:Sensor:HCMR-AQUABOX1dissolvedOxygen") } returns true
-        every { entityService.exists("urn:ngsi-ld:Device:HCMR-AQUABOX2") } returns false
-        every { entityService.appendEntityAttributes(any(), any(), any()) } returns UpdateResult(listOf(), listOf())
 
         webClient.post()
             .uri("/ngsi-ld/v1/entityOperations/upsert")

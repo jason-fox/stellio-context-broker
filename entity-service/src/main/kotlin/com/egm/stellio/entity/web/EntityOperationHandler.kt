@@ -60,6 +60,7 @@ class EntityOperationHandler(
 
                 val createBatchOperationResult = entityOperationService.create(newEntities)
                 val updateBatchOperationResult = entityOperationService.update(existingEntities)
+
                 BatchOperationResult(
                     ArrayList(createBatchOperationResult.success.plus(updateBatchOperationResult.success)),
                     ArrayList(createBatchOperationResult.errors.plus(updateBatchOperationResult.errors))

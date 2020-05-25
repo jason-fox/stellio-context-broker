@@ -68,14 +68,18 @@ class EntityOperationService(
 
             // All relations should target existing entities in DB
             val invalidRelation = entity.getLinkedEntitiesIds().find { relation ->
-                !entityService.exists(relation)
+                !entityService.exists(relation) //TODO do it with IN neo4J operation
             }
             if (invalidRelation != null) {
                 errors.add(BatchEntityError(entity.id, arrayListOf("Target entity $invalidRelation does not exist.")))
                 return@fold BatchOperationResult(updates, errors)
             }
 
-            val (_, notUpdated) = entityService.appendEntityAttributes(entity.id, entity.attributesWithoutTypeAndId, false)
+            val (_, notUpdated) = entityService.appendEntityAttributes(
+                entity.id,
+                entity.attributes // TODO filter id/type
+                , false
+            )
 
             if (notUpdated.isEmpty()) {
                 updates.add(entity.id)
