@@ -8,8 +8,6 @@ import com.egm.stellio.entity.web.BatchEntityError
 import com.egm.stellio.entity.web.BatchOperationResult
 import com.egm.stellio.shared.model.BadRequestDataException
 import com.egm.stellio.shared.model.ExpandedEntity
-import com.egm.stellio.shared.util.NgsiLdParsingUtils.NGSILD_ENTITY_ID
-import com.egm.stellio.shared.util.NgsiLdParsingUtils.NGSILD_ENTITY_TYPE
 import org.jgrapht.Graph
 import org.jgrapht.Graphs
 import org.jgrapht.graph.DefaultEdge
@@ -59,18 +57,19 @@ class EntityOperationService(
     }
 
     /**
-     * Upsert a batch of [entities].
+     * Update a batch of [entities].
+     * Only entities with relations linked to existing entities will be updated.
      *
-     * @return a [BatchOperationResult]
+     * @return a [BatchOperationResult] with list of updated ids and list of errors (either not totally updated or
+     * linked to invalid entity).
      */
     fun update(entitiesToUpdate: List<ExpandedEntity>): BatchOperationResult {
         return entitiesToUpdate.fold(BatchOperationResult(arrayListOf(), arrayListOf()), { (updates, errors), entity ->
 
-            // All relations should target existing entities in DB
+            // All relationships should target existing entities in DB
             val linkedEntitiesIds = entity.getLinkedEntitiesIds()
-            val nonExistingLinkedEntitiesIds = neo4jRepository
-                .filterExistingEntitiesIds(linkedEntitiesIds)
-                .minus(linkedEntitiesIds)
+            val nonExistingLinkedEntitiesIds = linkedEntitiesIds
+                .minus(neo4jRepository.filterExistingEntitiesIds(linkedEntitiesIds))
 
             if (nonExistingLinkedEntitiesIds.isNotEmpty()) {
                 errors.add(
@@ -79,19 +78,29 @@ class EntityOperationService(
                         arrayListOf("Target entities $nonExistingLinkedEntitiesIds does not exist.")
                     )
                 )
-                return@fold BatchOperationResult(updates, errors)
+
+                BatchOperationResult(updates, errors)
             }
 
-            val (_, notUpdated) = entityService.appendEntityAttributes(
-                entity.id,
-                entity.attributesWithoutTypeAndId,
-                false
-            )
+            try {
+                val (_, notUpdated) = entityService.appendEntityAttributes(
+                    entity.id,
+                    entity.attributesWithoutTypeAndId,
+                    false
+                )
 
-            if (notUpdated.isEmpty()) {
-                updates.add(entity.id)
-            } else {
-                errors.add(BatchEntityError(entity.id, ArrayList(notUpdated.map { it.attributeName + it.reason })))
+                if (notUpdated.isEmpty()) {
+                    updates.add(entity.id)
+                } else {
+                    errors.add(
+                        BatchEntityError(
+                            entity.id,
+                            ArrayList(notUpdated.map { it.attributeName + " : " + it.reason })
+                        )
+                    )
+                }
+            } catch (e: BadRequestDataException) {
+                errors.add(BatchEntityError(entity.id, arrayListOf(e.message)))
             }
 
             BatchOperationResult(updates, errors)
@@ -150,9 +159,7 @@ class EntityOperationService(
             try {
                 entityService.appendEntityAttributes(
                     entity.id,
-                    entity.attributes.filterKeys {
-                        !listOf(NGSILD_ENTITY_ID, NGSILD_ENTITY_TYPE).contains(it)
-                    },
+                    entity.attributesWithoutTypeAndId,
                     false
                 )
 

@@ -1,6 +1,7 @@
 package com.egm.stellio.entity.service
 
 import com.egm.stellio.entity.model.Entity
+import com.egm.stellio.entity.model.NotUpdatedDetails
 import com.egm.stellio.entity.model.UpdateResult
 import com.egm.stellio.entity.repository.EntityRepository
 import com.egm.stellio.entity.repository.Neo4jRepository
@@ -126,16 +127,71 @@ class EntityOperationServiceTests {
     fun `it should not update entities with relationships to invalid entity`() {
         val firstEntity = mockkClass(ExpandedEntity::class, relaxed = true)
         every { firstEntity.id } returns "1"
+        every { firstEntity.getLinkedEntitiesIds() } returns listOf()
         val secondEntity = mockkClass(ExpandedEntity::class, relaxed = true)
         every { secondEntity.id } returns "2"
-        every { secondEntity.getRelationships() } returns listOf("3")
+        every { secondEntity.getLinkedEntitiesIds() } returns listOf("3")
 
-        every { entityService.exists("3") } returns false
+        every { neo4jRepository.filterExistingEntitiesIds(listOf()) } returns listOf()
+        every { neo4jRepository.filterExistingEntitiesIds(listOf("3")) } returns listOf()
         every { entityService.appendEntityAttributes(eq("1"), any(), any()) } returns UpdateResult(listOf(), listOf())
 
         val batchOperationResult = entityOperationService.update(listOf(firstEntity, secondEntity))
 
         assertEquals(listOf("1"), batchOperationResult.success)
-        assertEquals(listOf(BatchEntityError("2", arrayListOf("Target entity 3 does not exist."))), batchOperationResult.errors)
+        assertEquals(
+            listOf(BatchEntityError("2", arrayListOf("Target entities [3] does not exist."))),
+            batchOperationResult.errors
+        )
+    }
+
+    @Test
+    fun `it should count as error updating which results in BadRequestDataException`() {
+        val firstEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { firstEntity.id } returns "1"
+        every { firstEntity.getLinkedEntitiesIds() } returns listOf()
+        val secondEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { secondEntity.id } returns "2"
+        every { secondEntity.getLinkedEntitiesIds() } returns listOf()
+
+        every { neo4jRepository.filterExistingEntitiesIds(listOf()) } returns listOf()
+        every { entityService.appendEntityAttributes(eq("1"), any(), any()) } returns UpdateResult(listOf(), listOf())
+        every { entityService.appendEntityAttributes(eq("2"), any(), any()) } throws BadRequestDataException("error")
+
+        val batchOperationResult = entityOperationService.update(listOf(firstEntity, secondEntity))
+
+        assertEquals(listOf("1"), batchOperationResult.success)
+        assertEquals(
+            listOf(BatchEntityError("2", arrayListOf("error"))),
+            batchOperationResult.errors
+        )
+    }
+
+    @Test
+    fun `it should count as error not updated attributes in entities`() {
+        val firstEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { firstEntity.id } returns "1"
+        every { firstEntity.getLinkedEntitiesIds() } returns listOf()
+        val secondEntity = mockkClass(ExpandedEntity::class, relaxed = true)
+        every { secondEntity.id } returns "2"
+        every { secondEntity.getLinkedEntitiesIds() } returns listOf()
+
+        every { neo4jRepository.filterExistingEntitiesIds(listOf()) } returns listOf()
+        every { entityService.appendEntityAttributes(eq("1"), any(), any()) } returns UpdateResult(listOf(), listOf())
+        every { entityService.appendEntityAttributes(eq("2"), any(), any()) } returns UpdateResult(
+            listOf(),
+            listOf(
+                NotUpdatedDetails("attribute#1", "reason"),
+                NotUpdatedDetails("attribute#2", "reason")
+            )
+        )
+
+        val batchOperationResult = entityOperationService.update(listOf(firstEntity, secondEntity))
+
+        assertEquals(listOf("1"), batchOperationResult.success)
+        assertEquals(
+            listOf(BatchEntityError("2", arrayListOf("attribute#1 : reason", "attribute#2 : reason"))),
+            batchOperationResult.errors
+        )
     }
 }
