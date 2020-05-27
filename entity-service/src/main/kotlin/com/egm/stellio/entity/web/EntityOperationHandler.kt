@@ -50,7 +50,7 @@ class EntityOperationHandler(
      * Implements 6.15.3.1 - Upsert Batch of Entities
      */
     @PostMapping("/upsert", consumes = [MediaType.APPLICATION_JSON_VALUE, JSON_LD_CONTENT_TYPE])
-    fun upsert(body: Mono<String>): Mono<ResponseEntity<*>> {
+    fun upsert(@RequestBody body: Mono<String>): Mono<ResponseEntity<*>> {
 
         return body
             .map {
