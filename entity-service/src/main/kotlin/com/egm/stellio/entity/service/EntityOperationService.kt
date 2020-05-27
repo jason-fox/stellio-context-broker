@@ -13,6 +13,7 @@ import org.jgrapht.Graphs
 import org.jgrapht.graph.DefaultEdge
 import org.jgrapht.graph.DirectedPseudograph
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 import kotlin.streams.toList
 
 /**
@@ -57,14 +58,32 @@ class EntityOperationService(
     }
 
     /**
+     * Replaces a batch of [entities]
+     * Only entities with relations linked to existing entities will be replaced.
+     *
+     * @return a [BatchOperationResult] with list of updated ids and list of errors (either not totally updated or
+     * linked to invalid entity).
+     */
+    fun replace(entities: List<ExpandedEntity>): BatchOperationResult {
+        return processExistingEntities(entities, ::replaceEntity)
+    }
+
+    /**
      * Update a batch of [entities].
      * Only entities with relations linked to existing entities will be updated.
      *
      * @return a [BatchOperationResult] with list of updated ids and list of errors (either not totally updated or
      * linked to invalid entity).
      */
-    fun update(entitiesToUpdate: List<ExpandedEntity>): BatchOperationResult {
-        return entitiesToUpdate.fold(BatchOperationResult(arrayListOf(), arrayListOf()), { (updates, errors), entity ->
+    fun update(entities: List<ExpandedEntity>): BatchOperationResult {
+        return processExistingEntities(entities, ::updateEntity)
+    }
+
+    private fun processExistingEntities(
+        entities: List<ExpandedEntity>,
+        processor: (ExpandedEntity) -> Pair<String?, BatchEntityError?>
+    ): BatchOperationResult {
+        return entities.fold(BatchOperationResult(arrayListOf(), arrayListOf()), { (updates, errors), entity ->
 
             // All relationships should target existing entities in DB
             val linkedEntitiesIds = entity.getLinkedEntitiesIds()
@@ -82,29 +101,49 @@ class EntityOperationService(
                 BatchOperationResult(updates, errors)
             }
 
-            try {
-                val (_, notUpdated) = entityService.appendEntityAttributes(
-                    entity.id,
-                    entity.attributesWithoutTypeAndId,
-                    false
-                )
-
-                if (notUpdated.isEmpty()) {
-                    updates.add(entity.id)
-                } else {
-                    errors.add(
-                        BatchEntityError(
-                            entity.id,
-                            ArrayList(notUpdated.map { it.attributeName + " : " + it.reason })
-                        )
-                    )
-                }
-            } catch (e: BadRequestDataException) {
-                errors.add(BatchEntityError(entity.id, arrayListOf(e.message)))
-            }
+            val (update, error) = processor(entity)
+            update?.let { updates.add(update) }
+            error?.let { errors.add(error) }
 
             BatchOperationResult(updates, errors)
         })
+    }
+
+    /*
+     * Transactional because it should not delete entity if the new one could not be created.
+     */
+    @Transactional(rollbackFor = [BadRequestDataException::class])
+    @Throws(BadRequestDataException::class)
+    private fun replaceEntity(entity: ExpandedEntity): Pair<String?, BatchEntityError?> {
+        try {
+            entityService.deleteEntity(entity.id)
+            entityService.createEntity(entity)
+        } catch (e: BadRequestDataException) {
+            return Pair(null, BatchEntityError(entity.id, arrayListOf(e.message)))
+        }
+    }
+
+    private fun updateEntity(entity: ExpandedEntity): Pair<String?, BatchEntityError?> {
+        try {
+            val (_, notUpdated) = entityService.appendEntityAttributes(
+                entity.id,
+                entity.attributesWithoutTypeAndId,
+                false
+            )
+
+            if (notUpdated.isEmpty()) {
+                return Pair(entity.id, null)
+            } else {
+                return Pair(
+                    null, BatchEntityError(
+                        entity.id,
+                        ArrayList(notUpdated.map { it.attributeName + " : " + it.reason })
+                    )
+                )
+            }
+        } catch (e: BadRequestDataException) {
+            return Pair(null, BatchEntityError(entity.id, arrayListOf(e.message)))
+        }
     }
 
     private fun createEntitiesWithoutCircularDependencies(graph: Graph<ExpandedEntity, DefaultEdge>): Pair<BatchOperationResult, Set<ExpandedEntity>> {
